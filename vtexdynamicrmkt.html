@@ -1,0 +1,181 @@
+<script>
+function extrairPreco(texto) {
+  if (!texto) return NaN;
+  var match = texto.match(/[\d\.,]+/);
+  return match ? parseFloat(match[0].replace(/\./g, '').replace(',', '.')) : NaN;
+}
+
+// enviados recebido como parâmetro para evitar problema de escopo
+function coletarEEnviarProdutos(enviados) {
+  var produtos = document.querySelectorAll('[id*="ResultItems"] li');
+  var items = [];
+  var totalValue = 0;
+
+  for (var i = 0; i < produtos.length; i++) {
+    var li = produtos[i];
+    var idInput  = li.querySelector('.x-id.js--shelf-id');
+    var skuInput = li.querySelector('input.js--input-shelf');
+    var priceSpan = li.querySelector('.x-price .x-bestPrice');
+    if (!idInput || !skuInput || !priceSpan) continue;
+
+    var id = idInput.value.trim();
+    var sku = skuInput.value.trim();
+    var uniqueId = id + '_' + sku;
+    if (enviados[uniqueId]) continue;
+
+    var preco = extrairPreco(priceSpan.textContent);
+    if (isNaN(preco)) continue;
+
+    totalValue += preco;
+    enviados[uniqueId] = true;
+    items.push({ id: uniqueId, google_business_vertical: 'retail' });
+  }
+
+  if (items.length > 0) {
+    dataLayer.push({ items: null });
+    dataLayer.push({
+      event: 'view_item_list-DynamicRemarketing',
+      value: totalValue,
+      items: items
+    });
+  }
+}
+
+(function () {
+  try {
+    var pageCategory = {{pageCategory}};
+    console.log('pageCategory:', pageCategory);
+
+    // HOME
+    if (pageCategory === 'Home') {
+      var activeSlides = document.querySelectorAll('.slick-slide.slick-current.slick-active');
+      var items = [];
+      var totalValue = 0;
+
+      for (var i = 0; i < activeSlides.length; i++) {
+        var product  = activeSlides[i].querySelector('.e-vitrine-group--product');
+        if (!product) continue;
+        var idInput  = product.querySelector('#js--id');
+        var skuInput = product.querySelector('#js--idSku');
+        var priceSpan = product.querySelector('.e-vitrine-group--product__info--price-bestPrice');
+        if (!idInput || !skuInput || !priceSpan) continue;
+
+        var preco = extrairPreco(priceSpan.textContent);
+        if (isNaN(preco)) continue;
+        totalValue += preco;
+        items.push({ id: idInput.value.trim() + '_' + skuInput.value.trim(), google_business_vertical: 'retail' });
+      }
+
+      if (items.length > 0) {
+        dataLayer.push({ items: null });
+        dataLayer.push({ event: 'view_item_list-DynamicRemarketing', value: totalValue, items: items });
+      }
+    }
+
+    // BUSCA INTERNA
+    else if (pageCategory === 'InternalSiteSearch') {
+      var enviados = {};
+      coletarEEnviarProdutos(enviados);
+
+      var debounceTimer;
+      var observer = new MutationObserver(function () {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          coletarEEnviarProdutos(enviados);
+        }, 300);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // PRODUTO
+    else if (pageCategory === 'Product') {
+      var priceEl     = document.querySelector('[property="product:price:amount"]');
+      var productIDEl = document.querySelector('[itemprop="productID"]');
+      var skuEl       = document.querySelector('[itemprop="sku"]');
+      if (!priceEl || !productIDEl || !skuEl) return;
+
+      var productId = productIDEl.getAttribute('content') + '_' + skuEl.getAttribute('content');
+      var productPrice = Number(priceEl.getAttribute('content'));
+
+      // view_item
+      dataLayer.push({ items: null });
+      dataLayer.push({
+        event: 'view_item-DynamicRemarketing',
+        value: productPrice,
+        items: [{ id: productId, google_business_vertical: 'retail' }]
+      });
+
+      // view_item_list (produtos relacionados)
+      var enviados = {};
+      var items = [];
+      var totalValue = 0;
+      var produtos = document.querySelectorAll('[role="listbox"] li');
+
+      for (var i = 0; i < produtos.length; i++) {
+        var productDiv = produtos[i].querySelector('.e-vitrine-group--product');
+        if (!productDiv) continue;
+        var idInput   = productDiv.querySelector('#js--id');
+        var skuInput  = productDiv.querySelector('#js--idSku');
+        var priceSpan = productDiv.querySelector('.e-vitrine-group--product__info--price-bestPrice');
+        if (!idInput || !skuInput || !priceSpan) continue;
+
+        var uniqueId = idInput.value.trim() + '_' + skuInput.value.trim();
+        var preco = extrairPreco(priceSpan.textContent);
+        if (isNaN(preco) || enviados[uniqueId]) continue;
+
+        enviados[uniqueId] = true;
+        totalValue += preco;
+        items.push({ id: uniqueId, google_business_vertical: 'retail' });
+      }
+
+      if (items.length > 0) {
+        dataLayer.push({ items: null });
+        dataLayer.push({ event: 'view_item_list-DynamicRemarketing', value: totalValue, items: items });
+      }
+
+      // add_to_cart
+      document.addEventListener('click', function (e) {
+        if (e.target.closest('a[href*="cart/add"]')) {
+          var pEl  = document.querySelector('[property="product:price:amount"]');
+          var idEl = document.querySelector('[itemprop="productID"]');
+          var sEl  = document.querySelector('[itemprop="sku"]');
+          if (!pEl || !idEl || !sEl) return;
+          dataLayer.push({ items: null });
+          dataLayer.push({
+            event: 'add_to_cart-DynamicRemarketing',
+            value: Number(pEl.getAttribute('content')),
+            items: [{ id: idEl.getAttribute('content') + '_' + sEl.getAttribute('content'), google_business_vertical: 'retail' }]
+          });
+        }
+      });
+    }
+
+    // PURCHASE
+    else if (pageCategory === 'purchase') {
+      // Busca ecommerce do dataLayer (empurrado por outra tag GA4)
+      var ecommerce = null;
+      for (var j = dataLayer.length - 1; j >= 0; j--) {
+        if (dataLayer[j].event === 'purchase' && dataLayer[j].ecommerce) {
+          ecommerce = dataLayer[j].ecommerce;
+          break;
+        }
+      }
+      if (!ecommerce || !ecommerce.items) return;
+
+      var itemsFormatados = ecommerce.items.map(function (item) {
+        return { id: item.item_id, google_business_vertical: 'retail' };
+      });
+
+      dataLayer.push({ items: null });
+      dataLayer.push({
+        event: 'purchase-DynamicRemarketing',
+        value: ecommerce.value,
+        items: itemsFormatados
+      });
+    }
+
+  } catch (err) {
+    console.warn('DynamicRemarketing error:', err);
+  }
+})();
+</script>

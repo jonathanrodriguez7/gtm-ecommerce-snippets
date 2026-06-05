@@ -1,0 +1,100 @@
+<script>
+var g_items = [];
+var g_currency = 'BRL';
+
+function dataLayerPush(eventType, ecommerceData) {
+  console.log(eventType, ecommerceData);
+  dataLayer.push({
+    event: eventType,
+    ecommerce: ecommerceData,
+  });
+}
+
+function itemPush(item_id, item_name, price, item_brand, item_category, variant, quantity) {
+  g_items.push({
+    item_id: item_id,
+    item_name: item_name,
+    price: price,
+    item_brand: item_brand,
+    item_category: item_category,
+    variant: variant,
+    quantity: quantity,
+    currency: g_currency,
+  });
+}
+
+// view_item + add_to_cart
+if (document.body.classList.contains('page-product-product')) {
+  window.dataLayer.forEach(function (data) {
+    var ecommerceGTM = data['ecommerce gtm'];
+    if (ecommerceGTM && ecommerceGTM.impressions) {
+      ecommerceGTM.impressions.forEach(function (el) {
+        if (el.PageType !== 'product') return;
+        itemPush(el.productId, el.productName, +el.productPriceTo, el.productBrandName, el.productCategoryName, '');
+      });
+    }
+  });
+
+  dataLayerPush('view_item', { items: g_items });
+
+  var btnCart = document.querySelector('#button-cart');
+  if (btnCart) {
+    btnCart.addEventListener('click', function () {
+      dataLayerPush('add_to_cart', { items: g_items });
+    });
+  }
+}
+
+// view_cart + begin_checkout
+if (document.body.classList.contains('page-checkout-cart')) {
+  window.dataLayer.forEach(function (data) {
+    var ecommerceGTM = data['ecommerce gtm'];
+    if (ecommerceGTM && ecommerceGTM.add && ecommerceGTM.add.products) {
+      ecommerceGTM.add.products.forEach(function (el) {
+        itemPush(el.id, el.name, +el.price, el.brand, el.category, el.variant, +el.quantity);
+      });
+    }
+  });
+
+  dataLayerPush('view_cart', { items: g_items });
+
+  document.querySelectorAll('a[href="checkout"]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      dataLayerPush('begin_checkout', { items: g_items });
+    });
+  });
+}
+
+// purchase
+if (document.body.classList.contains('page-checkout-success')) {
+  var g_order = {};
+
+  dataLayer.forEach(function (data) {
+    if (data.event === 'checkout') {
+      var ecommerceGTM = data['ecommerce gtm'];
+      if (ecommerceGTM && ecommerceGTM.purchase) {
+        var actionField = ecommerceGTM.purchase.actionField;
+        g_order.id        = actionField.id;
+        g_order.value     = +actionField.revenue;
+        g_order.shipping  = +actionField.shipping;
+        g_order.affiliation = actionField.affiliation;
+        g_order.coupon    = actionField.coupon;
+
+        ecommerceGTM.purchase.products.forEach(function (el) {
+          itemPush(el.id, el.name, +el.price, el.brand, el.category, el.variant, +el.quantity);
+        });
+      }
+    }
+  });
+
+  dataLayerPush('purchase', {
+    transaction_id: g_order.id,
+    affiliation:    g_order.affiliation,
+    value:          g_order.value,
+    shipping:       g_order.shipping,
+    currency:       g_currency,
+    coupon:         g_order.coupon,
+    items:          g_items,
+  });
+}
+</script>

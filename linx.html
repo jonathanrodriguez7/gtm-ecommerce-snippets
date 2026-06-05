@@ -1,0 +1,126 @@
+<script>
+var g_items = [];
+var g_currency = 'BRL';
+
+(function () {
+  function g_dataLayerPush(eventName, ecommerceObj) {
+    console.log(eventName, ecommerceObj);
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: eventName, ecommerce: ecommerceObj });
+  }
+
+  function g_itemPush(item_id, item_name, price, item_brand, item_category, quantity) {
+    g_items.push({
+      item_id: item_id,
+      item_name: item_name,
+      price: price,
+      item_brand: item_brand,
+      item_category: item_category,
+      quantity: quantity,
+      currency: g_currency,
+    });
+  }
+
+  function g_strToNum(str) {
+    return str.replace(/\D/g, '') / 100; // centavos padrão — ajuste se necessário
+  }
+
+  function g_numToStr(num) {
+    return num.toString();
+  }
+
+  // view_item + add_to_cart
+  if (document.body.classList.value.includes('context-product')) {
+    var g_product = EzGaCfg && EzGaCfg.ProductDetail;
+    if (!g_product) return;
+
+    g_itemPush(g_numToStr(g_product.id), g_product.name, g_strToNum(g_product.price), g_product.brand, g_product.category, 1);
+    g_dataLayerPush('view_item', { currency: g_currency, value: g_strToNum(g_product.price), items: g_items });
+
+    document.addEventListener('click', function (e) {
+      if (e.target.innerText && e.target.innerText.trim() === 'COMPRAR') {
+        var qtyInput = document.querySelector('[name="quantity"]');
+        var g_productQty = qtyInput ? +qtyInput.value : 1;
+        g_items = [];
+        g_itemPush(g_numToStr(g_product.id), g_product.name, g_strToNum(g_product.price), g_product.brand, g_product.category, g_productQty);
+        g_dataLayerPush('add_to_cart', { currency: g_currency, value: g_strToNum(g_product.price) * g_productQty, items: g_items });
+      }
+    });
+  }
+
+  // view_cart
+  if (window.location.pathname === '/carrinho') {
+    var g_basket = EzGaCfg && EzGaCfg.Basket;
+    if (!g_basket) return;
+    var g_basketTotal = 0;
+    for (var i = 0; i < g_basket.length; i++) {
+      g_basketTotal += g_strToNum(g_basket[i].price) * g_basket[i].quantity;
+      g_itemPush(g_numToStr(g_basket[i].id), g_basket[i].name, g_strToNum(g_basket[i].price), g_basket[i].brand, g_basket[i].category, g_basket[i].quantity);
+    }
+    g_dataLayerPush('view_cart', { currency: g_currency, value: g_basketTotal, items: g_items });
+  }
+
+  // Eventos de checkout via hash
+  function handleHashEvents() {
+    var hash = window.location.hash;
+
+    // begin_checkout + add_shipping_info
+    if (hash === '#delivery') {
+      g_items = [];
+      var g_allItems = EzGaCfg && EzGaCfg.Checkout && EzGaCfg.Checkout.Items;
+      if (!g_allItems) return;
+      var g_checkoutTotal = 0;
+      for (var i = 0; i < g_allItems.length; i++) {
+        g_checkoutTotal += g_strToNum(g_allItems[i].price) * g_allItems[i].quantity;
+        g_itemPush(g_numToStr(g_allItems[i].id), g_allItems[i].name, g_strToNum(g_allItems[i].price), g_allItems[i].brand, g_allItems[i].category, g_allItems[i].quantity);
+      }
+      g_dataLayerPush('begin_checkout', { currency: g_currency, value: g_checkoutTotal, items: g_items });
+
+      var g_deliveryOption = EzGaCfg.Checkout.SelectedDeliveryOption;
+      if (g_deliveryOption && Object.keys(g_deliveryOption).length !== 0) {
+        g_dataLayerPush('add_shipping_info', { currency: g_currency, value: g_checkoutTotal, shipping_tier: g_deliveryOption.name || 'Ground', items: g_items });
+      }
+    }
+
+    // purchase
+    if (hash === '#confirmation') {
+      g_items = [];
+      var g_orderEl = document.querySelector('.order-number strong');
+      var g_totalEl = document.querySelector('.basket-total .total span');
+      var g_orderID = g_orderEl ? g_orderEl.innerText : '';
+      var g_orderTotal = g_totalEl ? +g_totalEl.textContent.replace(/\D/g, '') / 100 : 0;
+      var g_allItems = EzGaCfg && EzGaCfg.Checkout && EzGaCfg.Checkout.Items;
+
+      if (g_allItems) {
+        for (var i = 0; i < g_allItems.length; i++) {
+          g_itemPush(g_numToStr(g_allItems[i].id), g_allItems[i].name, g_strToNum(g_allItems[i].price), g_allItems[i].brand, g_allItems[i].category, g_allItems[i].quantity);
+        }
+      }
+
+      g_dataLayerPush('purchase', {
+        transaction_id: g_orderID,
+        value: g_orderTotal,
+        currency: g_currency,
+        items: g_items,
+      });
+    }
+  }
+
+  // Roda no carregamento e em mudanças de hash (SPA)
+  handleHashEvents();
+  window.addEventListener('hashchange', handleHashEvents);
+
+  // add_payment_info
+  var g_submitBtn = document.querySelector('#form-checkout-submit');
+  if (g_submitBtn) {
+    g_submitBtn.addEventListener('click', function () {
+      var g_paymentType = window.location.hash.split('/')[1] || 'unknown';
+      g_dataLayerPush('add_payment_info', {
+        currency: g_currency,
+        payment_type: g_paymentType,
+        items: g_items,
+      });
+    });
+  }
+})();
+</script>
